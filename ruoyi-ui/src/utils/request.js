@@ -133,7 +133,7 @@ export function download(url, params, filename, config) {
   }).then(async (data) => {
     const isBlob = blobValidate(data)
     if (isBlob) {
-      const blob = new Blob([data])
+      const blob = new Blob([data], { type: data.type || 'application/octet-stream' })
       saveAs(blob, filename)
     } else {
       const resText = await data.text()

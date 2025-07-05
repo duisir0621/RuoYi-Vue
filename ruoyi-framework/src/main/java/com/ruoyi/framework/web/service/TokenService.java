@@ -217,12 +217,22 @@ public class TokenService
      */
     private String getToken(HttpServletRequest request)
     {
+        // 优先从请求头获取
         String token = request.getHeader(header);
         if (StringUtils.isNotEmpty(token) && token.startsWith(Constants.TOKEN_PREFIX))
         {
             token = token.replace(Constants.TOKEN_PREFIX, "");
+            return token;
         }
-        return token;
+        
+        // 如果请求头中没有，则从参数中获取
+        token = request.getParameter(Constants.TOKEN);
+        if (StringUtils.isNotEmpty(token))
+        {
+            return token;
+        }
+        
+        return null;
     }
 
     private String getTokenKey(String uuid)

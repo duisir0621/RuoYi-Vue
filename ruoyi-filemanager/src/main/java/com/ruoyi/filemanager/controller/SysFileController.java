@@ -46,18 +46,7 @@ public class SysFileController extends BaseController
         return getDataTable(list);
     }
 
-    /**
-     * 导出文件列表
-     */
-    @PreAuthorize("@ss.hasPermi('filemanager:file:export')")
-    @Log(title = "文件管理", businessType = BusinessType.EXPORT)
-    @PostMapping("/export")
-    public void export(HttpServletResponse response, SysFile sysFile)
-    {
-        List<SysFile> list = sysFileService.selectSysFileList(sysFile);
-        ExcelUtil<SysFile> util = new ExcelUtil<SysFile>(SysFile.class);
-        util.exportExcel(response, list, "文件数据");
-    }
+
 
     /**
      * 获取文件详细信息
@@ -119,9 +108,9 @@ public class SysFileController extends BaseController
     @PreAuthorize("@ss.hasPermi('filemanager:file:download')")
     @Log(title = "文件下载", businessType = BusinessType.EXPORT)
     @GetMapping("/download/{fileId}")
-    public AjaxResult download(@PathVariable Long fileId)
+    public void download(@PathVariable Long fileId)
     {
-        return sysFileService.downloadFile(fileId);
+        sysFileService.downloadFile(fileId);
     }
     
     /**
@@ -130,8 +119,8 @@ public class SysFileController extends BaseController
     @PreAuthorize("@ss.hasPermi('filemanager:file:download')")
     @Log(title = "批量文件下载", businessType = BusinessType.EXPORT)
     @GetMapping("/batchDownload/{fileIds}")
-    public AjaxResult batchDownload(@PathVariable Long[] fileIds)
+    public void batchDownload(@PathVariable Long[] fileIds)
     {
-        return sysFileService.batchDownloadFile(fileIds);
+        sysFileService.batchDownloadFile(fileIds);
     }
 } 

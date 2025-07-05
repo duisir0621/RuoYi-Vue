@@ -43,38 +43,11 @@ export function delFile(fileId) {
   })
 }
 
-// 导出文件
-export function exportFile(query) {
-  return request({
-    url: '/filemanager/file/export',
-    method: 'post',
-    params: query
-  })
-}
-
 // 上传文件
 export function uploadFile(file) {
   return request({
     url: '/filemanager/file/upload',
     method: 'post',
     data: file
-  })
-}
-
-// 下载文件
-export function downloadFile(fileId) {
-  return request({
-    url: '/filemanager/file/download/' + fileId,
-    method: 'get',
-    responseType: 'blob'
-  })
-}
-
-// 批量下载文件
-export function batchDownloadFile(fileIds) {
-  return request({
-    url: '/filemanager/file/batchDownload/' + fileIds,
-    method: 'get',
-    responseType: 'blob'
   })
 } 

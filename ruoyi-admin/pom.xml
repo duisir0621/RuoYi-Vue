@@ -60,6 +60,13 @@
             <groupId>com.ruoyi</groupId>
             <artifactId>ruoyi-generator</artifactId>
         </dependency>
+        
+        <!-- 文件管理-->
+        <dependency>
+            <groupId>com.ruoyi</groupId>
+            <artifactId>ruoyi-filemanager</artifactId>
+            <version>${ruoyi.version}</version>
+        </dependency>
 
     </dependencies>
 

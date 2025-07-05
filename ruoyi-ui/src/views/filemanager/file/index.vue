@@ -85,16 +85,7 @@
           v-hasPermi="['filemanager:file:download']"
         >批量下载</el-button>
       </el-col>
-      <el-col :span="1.5">
-        <el-button
-          type="warning"
-          plain
-          icon="el-icon-download"
-          size="mini"
-          @click="handleExport"
-          v-hasPermi="['filemanager:file:export']"
-        >导出</el-button>
-      </el-col>
+
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
@@ -216,7 +207,7 @@
         class="upload-file"
         ref="upload"
         :limit="1"
-        accept=".jpg, .jpeg, .png, .gif, .bmp, .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .txt, .zip, .rar"
+        accept=".jpg, .jpeg, .png, .gif, .bmp, .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .txt, .zip, .rar, .mp4, .mp3, .avi, .rmvb, .mov, .wmv, .flv, .mkv, .m4v, .webm, .wav, .wma, .ogg, .m4a, .mid"
         :action="upload.url"
         :headers="upload.headers"
         :file-list="upload.fileList"
@@ -270,7 +261,7 @@
 </template>
 
 <script>
-import { listFile, getFile, delFile, addFile, updateFile, exportFile, downloadFile, batchDownloadFile } from "@/api/filemanager/file";
+import { listFile, getFile, delFile, addFile, updateFile } from "@/api/filemanager/file";
 import { getToken } from "@/utils/auth";
 
 export default {
@@ -444,17 +435,7 @@ export default {
         this.$modal.msgSuccess("删除成功");
       }).catch(() => {});
     },
-    /** 导出按钮操作 */
-    handleExport() {
-      const queryParams = this.queryParams;
-      this.$modal.confirm('是否确认导出所有文件数据项？').then(() => {
-        this.exportLoading = true;
-        return exportFile(queryParams);
-      }).then(response => {
-        this.$download.name(response.msg);
-        this.exportLoading = false;
-      }).catch(() => {});
-    },
+
     /** 上传按钮操作 */
     handleUpload() {
       this.upload.open = true;
@@ -475,32 +456,31 @@ export default {
     /** 下载按钮操作 */
     handleDownload(row) {
       const fileId = row.fileId || this.ids;
-      downloadFile(fileId).then(res => {
-        if (res.type && res.type === 'application/json') {
-          // 处理后端返回的错误信息
-          this.blobToJson(res).then(data => {
-            this.$modal.msgError(data.msg || '下载失败');
-          });
-        } else {
-          const content = res;
-          const blob = new Blob([content]);
-          // 获取文件名
-          let fileName = row.originalName;
-          if (!fileName) {
-            fileName = row.fileName;
-          }
-          if (window.navigator.msSaveBlob) {
-            window.navigator.msSaveBlob(blob, fileName);
-          } else {
-            const link = document.createElement('a');
-            link.href = window.URL.createObjectURL(blob);
-            link.download = fileName;
-            link.click();
-            window.URL.revokeObjectURL(link.href);
-          }
-          this.$modal.msgSuccess("下载成功");
-        }
+      
+      // 使用loading效果，提升用户体验
+      const loading = this.$loading({
+        lock: true,
+        text: "正在准备下载...",
+        spinner: "el-icon-loading",
+        background: "rgba(0, 0, 0, 0.7)"
       });
+      
+      // 创建一个新的链接，直接使用浏览器进行文件下载
+      const token = getToken();
+      const url = process.env.VUE_APP_BASE_API + '/filemanager/file/download/' + fileId + '?token=' + token;
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank'; // 在新窗口打开，避免导航离开当前页面
+      
+      // 添加到DOM
+      document.body.appendChild(link);
+      
+      // 延迟关闭loading效果，确保链接有足够时间被点击
+      setTimeout(() => {
+        link.click();
+        document.body.removeChild(link);
+        loading.close();
+      }, 100);
     },
     /** 批量下载按钮操作 */
     handleBatchDownload() {
@@ -511,49 +491,26 @@ export default {
       
       this.$modal.confirm('是否确认批量下载选中的' + this.ids.length + '个文件？').then(() => {
         this.downloadLoading = true;
-        batchDownloadFile(this.ids.toString()).then(res => {
+        
+        // 创建一个新的链接，直接使用浏览器进行文件下载
+        const token = getToken();
+        const url = process.env.VUE_APP_BASE_API + '/filemanager/file/batchDownload/' + this.ids.toString() + '?token=' + token;
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank'; // 在新窗口打开，避免导航离开当前页面
+        
+        // 添加到DOM
+        document.body.appendChild(link);
+        
+        // 触发点击
+        link.click();
+        
+        // 清理DOM
+        setTimeout(() => {
+          document.body.removeChild(link);
           this.downloadLoading = false;
-          if (res.type && res.type === 'application/json') {
-            // 处理后端返回的错误信息
-            this.blobToJson(res).then(data => {
-              this.$modal.msgError(data.msg || '批量下载失败');
-            });
-          } else {
-            const content = res;
-            const blob = new Blob([content]);
-            const fileName = "批量下载文件.zip";
-            if (window.navigator.msSaveBlob) {
-              window.navigator.msSaveBlob(blob, fileName);
-            } else {
-              const link = document.createElement('a');
-              link.href = window.URL.createObjectURL(blob);
-              link.download = fileName;
-              link.click();
-              window.URL.revokeObjectURL(link.href);
-            }
-            this.$modal.msgSuccess("批量下载成功");
-          }
-        }).catch(() => {
-          this.downloadLoading = false;
-        });
+        }, 100);
       }).catch(() => {});
-    },
-    // Blob转JSON
-    blobToJson(data) {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.readAsText(data, 'utf-8');
-        reader.onload = function() {
-          try {
-            resolve(JSON.parse(reader.result));
-          } catch (error) {
-            resolve({
-              code: 500,
-              msg: '下载失败'
-            });
-          }
-        };
-      });
     },
     /** 预览按钮操作 */
     handleView(row) {
@@ -596,7 +553,7 @@ export default {
       } else if (['xls', 'xlsx'].includes(fileType)) {
         return 'el-icon-tickets';
       } else if (['pdf'].includes(fileType)) {
-        return 'el-icon-document-checked';
+        return 'el-icon-tickets';
       } else if (['zip', 'rar', '7z'].includes(fileType)) {
         return 'el-icon-folder';
       } else if (['txt'].includes(fileType)) {

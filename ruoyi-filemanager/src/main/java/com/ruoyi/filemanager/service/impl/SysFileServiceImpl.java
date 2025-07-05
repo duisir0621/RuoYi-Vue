@@ -4,6 +4,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -178,15 +182,20 @@ public class SysFileServiceImpl implements ISysFileService
      * 下载文件
      * 
      * @param fileId 文件ID
-     * @return 结果
      */
     @Override
-    public AjaxResult downloadFile(Long fileId)
+    public void downloadFile(Long fileId)
     {
         SysFile sysFile = sysFileMapper.selectSysFileById(fileId);
         if (sysFile == null)
         {
-            return AjaxResult.error("文件不存在");
+            try {
+                response.setContentType("application/json;charset=utf-8");
+                response.getWriter().write("{\"msg\":\"文件不存在\",\"code\":500}");
+                return;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
         
         try
@@ -197,10 +206,32 @@ public class SysFileServiceImpl implements ISysFileService
             File file = new File(filePath);
             if (!file.exists())
             {
-                return AjaxResult.error("文件不存在");
+                response.setContentType("application/json;charset=utf-8");
+                response.getWriter().write("{\"msg\":\"文件不存在\",\"code\":500}");
+                return;
             }
             
-            response.setContentType(MimeTypeUtils.getContentType(sysFile.getFileType()));
+            // 确保设置正确的MIME类型，特别是PDF文件
+            String fileType = sysFile.getFileType();
+            String contentType = MimeTypeUtils.getContentType(fileType);
+            
+            // 记录日志信息，帮助调试
+            System.out.println("文件ID: " + fileId);
+            System.out.println("文件类型: " + fileType);
+            System.out.println("内容类型: " + contentType);
+            
+            response.reset(); // 重置响应对象，清除缓存
+            
+            // 明确为PDF文件设置正确的Content-Type
+            boolean isPdf = "pdf".equalsIgnoreCase(fileType);
+
+            if (isPdf) {
+                contentType = MimeTypeUtils.PDF;
+                response.setContentType(MimeTypeUtils.PDF);
+            } else {
+                response.setContentType(contentType);
+            }
+            
             response.setCharacterEncoding("utf-8");
             
             // 直接使用原始文件名作为下载名称，确保不包含路径
@@ -209,18 +240,76 @@ public class SysFileServiceImpl implements ISysFileService
             if (downloadName.contains("/") || downloadName.contains("\\")) {
                 downloadName = StringUtils.substringAfterLast(downloadName, downloadName.contains("/") ? "/" : "\\");
             }
-            response.setHeader("Content-disposition", "attachment;filename=" + FileUtils.setFileDownloadHeader(request, downloadName));
             
-            FileUtils.writeBytes(filePath, response.getOutputStream());
+            // 确保PDF文件有.pdf后缀
+            if (isPdf && !downloadName.toLowerCase().endsWith(".pdf")) {
+                downloadName = downloadName + ".pdf";
+            }
+            
+            try {
+                // 使用UTF-8编码处理文件名
+                String encodeFilename = URLEncoder.encode(downloadName, StandardCharsets.UTF_8.toString());
+                // 处理空格等特殊字符
+                encodeFilename = encodeFilename.replaceAll("\\+", "%20");
+                
+                // 设置响应头，兼容各种浏览器
+                String userAgent = request.getHeader("User-Agent");
+                
+                // 对于PDF文件，明确使用attachment作为disposition类型，确保浏览器下载而不是在线查看
+                String disposition = "attachment";
+                
+                // 为不同浏览器设置不同的响应头
+                if (userAgent != null && (userAgent.contains("MSIE") || userAgent.contains("Trident"))) {
+                    // IE浏览器
+                    response.setHeader("Content-Disposition", disposition + ";filename=" + encodeFilename);
+                } else if (userAgent != null && userAgent.contains("Firefox")) {
+                    // 火狐浏览器
+                    response.setHeader("Content-Disposition", disposition + ";filename*=UTF-8''" + encodeFilename);
+                } else {
+                    // Chrome、Edge等浏览器
+                    response.setHeader("Content-Disposition", disposition + ";filename=" + encodeFilename);
+                }
+                
+                // 添加额外的响应头，避免缓存和CORS问题
+                response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+                response.setHeader("Pragma", "no-cache");
+                response.setHeader("Expires", "0");
+                response.setHeader("Access-Control-Allow-Origin", "*");
+                response.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+                
+                // 设置内容长度，避免传输问题
+                response.setHeader("Content-Length", String.valueOf(file.length()));
+                
+            } catch (UnsupportedEncodingException e) {
+                // 如果编码失败，使用默认方法
+                response.setHeader("Content-disposition", "attachment;filename=" + FileUtils.setFileDownloadHeader(request, downloadName));
+            }
+            
+            // 使用缓冲流提高性能
+            FileInputStream fileInputStream = new FileInputStream(file);
+            byte[] buffer = new byte[1024 * 10]; // 10KB缓冲区
+            OutputStream outputStream = response.getOutputStream();
+            int bytesRead;
+            while ((bytesRead = fileInputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            outputStream.flush();
+            fileInputStream.close();
             
             // 更新下载次数
             sysFileMapper.updateSysFileDownloadCount(fileId);
-            
-            return AjaxResult.success();
         }
-        catch (IOException e)
+        catch (Exception e)
         {
-            return AjaxResult.error("下载文件失败：" + e.getMessage());
+            System.out.println("下载文件异常: " + e.getMessage());
+            e.printStackTrace();
+            try {
+                response.reset();
+                response.setContentType("application/json;charset=utf-8");
+                response.getWriter().write("{\"msg\":\"下载文件失败：" + e.getMessage() + "\",\"code\":500}");
+            } catch (IOException ioe) {
+                ioe.printStackTrace();
+            }
         }
     }
     
@@ -228,14 +317,19 @@ public class SysFileServiceImpl implements ISysFileService
      * 批量下载文件
      * 
      * @param fileIds 文件ID数组
-     * @return 结果
      */
     @Override
-    public AjaxResult batchDownloadFile(Long[] fileIds)
+    public void batchDownloadFile(Long[] fileIds)
     {
         if (fileIds == null || fileIds.length == 0)
         {
-            return AjaxResult.error("请选择要下载的文件");
+            try {
+                response.setContentType("application/json;charset=utf-8");
+                response.getWriter().write("{\"msg\":\"请选择要下载的文件\",\"code\":500}");
+                return;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
         
         // 临时ZIP文件名
@@ -288,7 +382,13 @@ public class SysFileServiceImpl implements ISysFileService
         }
         catch (IOException e)
         {
-            return AjaxResult.error("创建压缩文件失败：" + e.getMessage());
+            try {
+                response.setContentType("application/json;charset=utf-8");
+                response.getWriter().write("{\"msg\":\"创建压缩文件失败：" + e.getMessage() + "\",\"code\":500}");
+                return;
+            } catch (IOException ioe) {
+                ioe.printStackTrace();
+            }
         }
         
         try
@@ -304,12 +404,16 @@ public class SysFileServiceImpl implements ISysFileService
             
             // 删除临时文件
             FileUtils.deleteFile(zipFilePath);
-            
-            return AjaxResult.success();
         }
         catch (IOException e)
         {
-            return AjaxResult.error("下载文件失败：" + e.getMessage());
-        }
+                        try {
+                response.reset();
+                response.setContentType("application/json;charset=utf-8");
+                response.getWriter().write("{\"msg\":\"下载文件失败：" + e.getMessage() + "\",\"code\":500}");
+            } catch (IOException ioe) {
+                ioe.printStackTrace();
+            }
+          }
     }
 } 

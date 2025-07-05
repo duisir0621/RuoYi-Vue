@@ -224,5 +224,45 @@ export function getNormalPath(p) {
 
 // 验证是否为blob格式
 export function blobValidate(data) {
-  return data.type !== 'application/json'
+  if (!data) {
+    console.warn('blobValidate: 数据为空');
+    return false;
+  }
+  
+  if (!data.type) {
+    console.warn('blobValidate: 数据类型为空');
+    return false;
+  }
+  
+  // 记录数据类型以帮助调试
+  console.log('blobValidate: 数据类型 = ' + data.type);
+  
+  // PDF文件特殊处理
+  if (data.type === 'application/pdf' || data.type.indexOf('pdf') !== -1) {
+    console.log('blobValidate: 识别为PDF文件');
+    return true;
+  }
+  
+  // 常见二进制数据类型检测
+  const binaryTypes = [
+    'application/octet-stream',
+    'application/zip',
+    'application/x-zip-compressed',
+    'application/x-rar-compressed',
+    'image/',
+    'audio/',
+    'video/'
+  ];
+  
+  for (const type of binaryTypes) {
+    if (data.type.indexOf(type) !== -1) {
+      console.log('blobValidate: 识别为二进制文件 - ' + type);
+      return true;
+    }
+  }
+  
+  // 判断是否为json类型，如果是json类型则不是有效的blob
+  const isJson = data.type === 'application/json' || data.type.indexOf('json') !== -1;
+  console.log('blobValidate: 是否为JSON = ' + isJson);
+  return !isJson;
 }

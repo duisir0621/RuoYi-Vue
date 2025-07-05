@@ -72,15 +72,13 @@ public interface ISysFileService
      * 下载文件
      * 
      * @param fileId 文件ID
-     * @return 结果
      */
-    public AjaxResult downloadFile(Long fileId);
+    public void downloadFile(Long fileId);
     
     /**
      * 批量下载文件
      * 
      * @param fileIds 文件ID数组
-     * @return 结果
      */
-    public AjaxResult batchDownloadFile(Long[] fileIds);
+    public void batchDownloadFile(Long[] fileIds);
 } 
