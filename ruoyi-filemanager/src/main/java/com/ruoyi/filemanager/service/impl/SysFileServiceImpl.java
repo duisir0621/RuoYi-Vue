@@ -17,6 +17,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -31,6 +33,7 @@ import com.ruoyi.common.utils.file.MimeTypeUtils;
 import com.ruoyi.filemanager.domain.SysFile;
 import com.ruoyi.filemanager.mapper.SysFileMapper;
 import com.ruoyi.filemanager.service.ISysFileService;
+import com.ruoyi.filemanager.utils.FileCleanupUtils;
 import com.ruoyi.filemanager.utils.FileManagerUtils;
 
 /**
@@ -41,6 +44,8 @@ import com.ruoyi.filemanager.utils.FileManagerUtils;
 @Service
 public class SysFileServiceImpl implements ISysFileService 
 {
+    private static final Logger log = LoggerFactory.getLogger(SysFileServiceImpl.class);
+
     @Autowired
     private SysFileMapper sysFileMapper;
     
@@ -115,8 +120,44 @@ public class SysFileServiceImpl implements ISysFileService
         if (sysFile != null && StringUtils.isNotEmpty(sysFile.getFilePath()))
         {
             String filePath = RuoYiConfig.getProfile() + StringUtils.substringAfter(sysFile.getFilePath(), "/profile");
-            FileUtils.deleteFile(filePath);
+            
+            // 记录删除前的信息
+            log.info("准备删除文件 - ID: {}, 路径: {}, 类型: {}", fileId, filePath, sysFile.getFileType());
+            
+            // 尝试删除物理文件
+            boolean deleteResult = FileUtils.deleteFile(filePath);
+            
+            // 记录删除结果
+            if (deleteResult) {
+                log.info("物理文件删除成功 - ID: {}", fileId);
+            } else {
+                log.warn("物理文件删除失败 - ID: {}, 路径: {}, 将加入清理队列", fileId, filePath);
+                
+                // 对于特定类型的文件（PDF和压缩包），如果常规删除失败，添加到清理队列
+                if (sysFile.getFileType() != null && 
+                    (sysFile.getFileType().equalsIgnoreCase("pdf") || 
+                     sysFile.getFileType().equalsIgnoreCase("zip") || 
+                     sysFile.getFileType().equalsIgnoreCase("rar") ||
+                     sysFile.getFileType().equalsIgnoreCase("7z"))) 
+                {
+                    File fileToDelete = new File(filePath);
+                    if (fileToDelete.exists()) {
+                        try {
+                            // 添加到清理队列
+                            FileCleanupUtils.addFileToCleanupQueue(filePath);
+                            
+                            // 同时设置为JVM退出时删除，双重保险
+                            fileToDelete.deleteOnExit();
+                            log.info("文件已添加到清理队列并设置为JVM退出时删除 - ID: {}", fileId);
+                        } catch (Exception e) {
+                            log.error("设置文件清理失败 - ID: {}, 错误: {}", fileId, e.getMessage(), e);
+                        }
+                    }
+                }
+            }
         }
+        
+        // 无论物理文件是否删除成功，都删除数据库记录
         return sysFileMapper.deleteSysFileById(fileId);
     }
 
@@ -129,11 +170,21 @@ public class SysFileServiceImpl implements ISysFileService
     @Override
     public int deleteSysFileByIds(Long[] fileIds)
     {
+        log.info("开始批量删除文件，共 {} 个文件", fileIds.length);
+        int successCount = 0;
         for (Long fileId : fileIds)
         {
-            deleteSysFileById(fileId);
+            try {
+                int result = deleteSysFileById(fileId);
+                if (result > 0) {
+                    successCount++;
+                }
+            } catch (Exception e) {
+                log.error("删除文件失败 - ID: {}, 错误: {}", fileId, e.getMessage(), e);
+            }
         }
-        return fileIds.length;
+        log.info("批量删除完成，成功: {}, 失败: {}", successCount, (fileIds.length - successCount));
+        return successCount;
     }
     
     /**

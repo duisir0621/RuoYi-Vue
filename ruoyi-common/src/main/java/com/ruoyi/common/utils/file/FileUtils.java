@@ -128,9 +128,66 @@ public class FileUtils
         // 路径为文件且不为空则进行删除
         if (file.isFile() && file.exists())
         {
-            flag = file.delete();
+            try {
+                flag = file.delete();
+                
+                // 针对特殊文件类型，如果首次删除失败，尝试强制删除
+                if (!flag) {
+                    // 获取文件类型
+                    String fileType = getFileExtendName(file.getName());
+                    
+                    // 对于PDF文件和压缩包等特殊处理
+                    if (fileType.equalsIgnoreCase("pdf") || 
+                        fileType.equalsIgnoreCase("zip") || 
+                        fileType.equalsIgnoreCase("rar") ||
+                        fileType.equalsIgnoreCase("7z"))
+                    {
+                        // 释放资源
+                        System.gc();
+                        
+                        // 再次尝试删除
+                        flag = file.delete();
+                        
+                        // 如果还是失败，使用Java 7+ 的Files API尝试删除
+                        if (!flag && file.exists()) {
+                            try {
+                                java.nio.file.Files.delete(file.toPath());
+                                flag = true;
+                            } catch (IOException e) {
+                                // 记录异常但不抛出
+                                System.err.println("无法删除文件: " + filePath + ", 原因: " + e.getMessage());
+                            }
+                        }
+                    }
+                }
+                
+                // 记录删除结果
+                if (flag) {
+                    System.out.println("成功删除文件: " + filePath);
+                } else {
+                    System.err.println("文件删除失败: " + filePath);
+                }
+            } catch (Exception e) {
+                System.err.println("删除文件时发生异常: " + filePath + ", 原因: " + e.getMessage());
+            }
         }
         return flag;
+    }
+
+    /**
+     * 获取文件扩展名
+     * 
+     * @param fileName 文件名
+     * @return 文件扩展名
+     */
+    public static String getFileExtendName(String fileName)
+    {
+        String extension = "";
+        int i = fileName.lastIndexOf('.');
+        if (i > 0 && i < fileName.length() - 1) {
+            extension = fileName.substring(i + 1).toLowerCase();
+        }
+        return extension;
     }
 
     /**
