@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.filemanager.mapper.SysFileMapper">
+    
+    <resultMap type="FileManagerSysFile" id="SysFileResult">
+        <id property="fileId" column="file_id"/>
+        <result property="fileName" column="file_name"/>
+        <result property="originalName" column="original_name"/>
+        <result property="filePath" column="file_path"/>
+        <result property="fileType" column="file_type"/>
+        <result property="fileSize" column="file_size"/>
+        <result property="status" column="status"/>
+        <result property="deptId" column="dept_id"/>
+        <result property="downloadCount" column="download_count"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+    </resultMap>
+    
+    <sql id="selectSysFileVo">
+        select file_id, file_name, original_name, file_path, file_type, file_size, status, dept_id, download_count, create_by, create_time, update_by, update_time, remark
+        from sys_file
+    </sql>
+    
+    <select id="selectSysFileList" parameterType="FileManagerSysFile" resultMap="SysFileResult">
+        <include refid="selectSysFileVo"/>
+        <where>
+            <if test="fileName != null and fileName != ''">
+                AND file_name like concat('%', #{fileName}, '%')
+            </if>
+            <if test="originalName != null and originalName != ''">
+                AND original_name like concat('%', #{originalName}, '%')
+            </if>
+            <if test="fileType != null and fileType != ''">
+                AND file_type = #{fileType}
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="deptId != null">
+                AND dept_id = #{deptId}
+            </if>
+            <if test="params.beginTime != null and params.beginTime != ''"><!-- 开始时间检索 -->
+                AND date_format(create_time,'%y%m%d') &gt;= date_format(#{params.beginTime},'%y%m%d')
+            </if>
+            <if test="params.endTime != null and params.endTime != ''"><!-- 结束时间检索 -->
+                AND date_format(create_time,'%y%m%d') &lt;= date_format(#{params.endTime},'%y%m%d')
+            </if>
+        </where>
+    </select>
+    
+    <select id="selectSysFileById" parameterType="Long" resultMap="SysFileResult">
+        <include refid="selectSysFileVo"/>
+        where file_id = #{fileId}
+    </select>
+    
+    <insert id="insertSysFile" parameterType="FileManagerSysFile" useGeneratedKeys="true" keyProperty="fileId">
+        insert into sys_file(
+            <if test="fileName != null">file_name,</if>
+            <if test="originalName != null">original_name,</if>
+            <if test="filePath != null">file_path,</if>
+            <if test="fileType != null">file_type,</if>
+            <if test="fileSize != null">file_size,</if>
+            <if test="status != null">status,</if>
+            <if test="deptId != null">dept_id,</if>
+            <if test="downloadCount != null">download_count,</if>
+            <if test="remark != null">remark,</if>
+            <if test="createBy != null">create_by,</if>
+            create_time
+        )values(
+            <if test="fileName != null">#{fileName},</if>
+            <if test="originalName != null">#{originalName},</if>
+            <if test="filePath != null">#{filePath},</if>
+            <if test="fileType != null">#{fileType},</if>
+            <if test="fileSize != null">#{fileSize},</if>
+            <if test="status != null">#{status},</if>
+            <if test="deptId != null">#{deptId},</if>
+            <if test="downloadCount != null">#{downloadCount},</if>
+            <if test="remark != null">#{remark},</if>
+            <if test="createBy != null">#{createBy},</if>
+            sysdate()
+        )
+    </insert>
+    
+    <update id="updateSysFile" parameterType="FileManagerSysFile">
+        update sys_file
+        <set>
+            <if test="fileName != null">file_name = #{fileName},</if>
+            <if test="originalName != null">original_name = #{originalName},</if>
+            <if test="filePath != null">file_path = #{filePath},</if>
+            <if test="fileType != null">file_type = #{fileType},</if>
+            <if test="fileSize != null">file_size = #{fileSize},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="deptId != null">dept_id = #{deptId},</if>
+            <if test="downloadCount != null">download_count = #{downloadCount},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            update_time = sysdate()
+        </set>
+        where file_id = #{fileId}
+    </update>
+    
+    <update id="updateSysFileDownloadCount" parameterType="Long">
+        update sys_file set download_count = download_count + 1 where file_id = #{fileId}
+    </update>
+    
+    <delete id="deleteSysFileById" parameterType="Long">
+        delete from sys_file where file_id = #{fileId}
+    </delete>
+    
+    <delete id="deleteSysFileByIds" parameterType="String">
+        delete from sys_file where file_id in 
+        <foreach collection="array" item="fileId" open="(" separator="," close=")">
+            #{fileId}
+        </foreach>
+    </delete>
+    
+</mapper> 
