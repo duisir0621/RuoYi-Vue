@@ -587,14 +587,20 @@ public class SysFileServiceImpl implements ISysFileService
         }
         catch (IOException e)
         {
-                        try {
-                response.reset();
-                response.setContentType("application/json;charset=utf-8");
-                response.getWriter().write("{\"msg\":\"下载文件失败：" + e.getMessage() + "\",\"code\":500}");
+            try {
+                // 检查响应是否已提交，避免"Cannot call reset() after response has been committed"异常
+                if (!response.isCommitted()) {
+                    response.reset();
+                    response.setContentType("application/json;charset=utf-8");
+                    response.getWriter().write("{\"msg\":\"下载文件失败：" + e.getMessage() + "\",\"code\":500}");
+                } else {
+                    // 响应已提交，只记录错误，不再尝试重置响应
+                    log.error("批量文件下载异常，响应已提交，无法重置响应: {}", e.getMessage());
+                }
             } catch (IOException ioe) {
-                ioe.printStackTrace();
+                log.error("响应错误信息失败: {}", ioe.getMessage());
             }
-          }
+        }
     }
 
     /**

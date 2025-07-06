@@ -399,3 +399,24 @@ ProgressEvent {isTrusted: true, lengthComputable: false, loaded: 0, total: 0, ty
 
 ### 总结
 通过增加请求超时时间，特别是为文件上传请求设置更长的超时时间，解决了上传大文件时出现的超时问题。这个修改使系统能够处理更大的文件上传，提高了系统的稳定性和用户体验。 
+
+## 2025-07-13 修复批量下载响应重置问题
+
+### 问题描述
+批量下载文件时出现`java.lang.IllegalStateException: Cannot call reset() after response has been committed`异常，导致下载失败。
+
+### 问题原因
+当批量文件下载遇到IOException时，代码直接调用了`response.reset()`方法，但没有先检查响应是否已提交。根据HTTP协议，一旦响应已经开始向客户端写入数据，就不能再调用reset()方法。
+
+### 修复内容
+1. 在`SysFileServiceImpl.batchDownloadFile`方法的异常处理部分添加响应状态检查：
+   - 增加`if (!response.isCommitted())`判断，仅在响应未提交时才调用reset()
+   - 当响应已提交时，只记录错误日志，不再尝试重置响应
+   - 改进日志处理，使用log.error替代ioe.printStackTrace()
+   - 保持与单文件下载方法中异常处理逻辑一致
+
+### 效果
+修复后，批量下载功能在遇到IO异常时不会再出现响应重置错误，而是根据响应状态采取合适的处理方式，提高了下载功能的稳定性和可靠性。
+
+### 修改文件
+- `ruoyi-filemanager/src/main/java/com/ruoyi/filemanager/service/impl/SysFileServiceImpl.java` 

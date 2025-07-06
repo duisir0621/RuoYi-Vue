@@ -97,8 +97,8 @@
       <el-table-column label="缩略图" align="center" width="80">
         <template slot-scope="scope">
           <div v-if="isImageFile(scope.row.fileType)" class="thumbnail-container" @click="handleImagePreview(scope.row)">
-            <el-image 
-              :src="getFilePath(scope.row.filePath)" 
+            <el-image
+              :src="getFilePath(scope.row.filePath)"
               fit="cover"
               class="thumbnail-image">
               <div slot="error" class="image-error">
@@ -121,9 +121,9 @@
       <el-table-column label="下载次数" align="center" prop="downloadCount" width="90" />
       <el-table-column label="访问地址" align="center" width="120">
         <template slot-scope="scope">
-          <el-link 
-            type="primary" 
-            icon="el-icon-link" 
+          <el-link
+            type="primary"
+            icon="el-icon-link"
             @click.native="copyFileUrl(scope.row)">
             点击复制
           </el-link>
@@ -167,7 +167,7 @@
         </template>
       </el-table-column>
     </el-table>
-    
+
     <pagination
       v-show="total>0"
       :total="total"
@@ -200,7 +200,7 @@
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
-    
+
     <!-- 文件上传对话框 -->
     <el-dialog :title="upload.title" :visible.sync="upload.open" width="500px" append-to-body>
       <el-upload
@@ -223,7 +223,7 @@
         </div>
       </el-upload>
     </el-dialog>
-    
+
     <!-- 文件预览对话框 -->
     <el-dialog :title="preview.title" :visible.sync="preview.open" width="80%" append-to-body>
       <div class="preview-container" v-if="preview.type === 'image'">
@@ -240,8 +240,8 @@
     <!-- 图片预览弹窗 -->
     <el-dialog :title="imagePreview.title" :visible.sync="imagePreview.open" append-to-body width="90%" class="image-preview-dialog" :fullscreen="true">
       <div class="fullscreen-preview-container">
-        <el-image 
-          :src="imagePreview.url" 
+        <el-image
+          :src="imagePreview.url"
           :preview-src-list="[imagePreview.url]"
           fit="none"
           class="fullscreen-preview-image">
@@ -251,9 +251,9 @@
 
     <!-- 隐藏的图片元素，用于触发原生预览 -->
     <div style="display: none;">
-      <el-image 
+      <el-image
         ref="previewImage"
-        :src="imagePreview.url" 
+        :src="imagePreview.url"
         :preview-src-list="imagePreview.previewList">
       </el-image>
     </div>
@@ -473,11 +473,11 @@ export default {
       const fileType = row.fileType ? row.fileType.toLowerCase() : '';
       const isPdf = fileType === 'pdf';
       const originalName = row.originalName || `file_${fileId}`;
-      
+
       // 构建请求URL
       const token = getToken();
       const url = process.env.VUE_APP_BASE_API + '/filemanager/file/download/' + fileId + '?token=' + token;
-      
+
       // 如果选择在线预览PDF，使用浏览器的PDF查看器
       if (mode === 'preview' && isPdf) {
         // 打开新窗口预览PDF
@@ -487,7 +487,7 @@ export default {
       }
 
       // console.log('开始下载文件 - URL:', url);
-      
+
       try {
         // 使用iframe方式下载文件，避免被浏览器阻止
         // 创建一个隐藏的iframe
@@ -498,7 +498,7 @@ export default {
           downloadFrame.style.display = 'none';
           document.body.appendChild(downloadFrame);
         }
-        
+
        // 设置下载完成或失败的处理函数
         const downloadTimeout = setTimeout(() => {
           //console.log('下载可能已开始或被阻止');
@@ -506,12 +506,12 @@ export default {
           //this.$modal.msgSuccess("下载成功");
           this.isDownloading = false;
         }, 1500); // 缩短超时时间，提高响应速度
-        
+
         // 监听iframe的load事件
         downloadFrame.onload = () => {
           clearTimeout(downloadTimeout);
           console.log('iframe加载完成');
-          
+
           try {
             // 尝试检查iframe内容是否为错误响应
             const frameDoc = downloadFrame.contentDocument || downloadFrame.contentWindow.document;
@@ -528,11 +528,11 @@ export default {
             // 跨域限制可能导致无法访问iframe内容
             console.log('无法检查iframe内容:', e);
           }
-          
+
           // 默认认为下载已开始，但不显示提示，保持界面简洁
           this.isDownloading = false;
         };
-        
+
         // 监听iframe的错误事件
         downloadFrame.onerror = () => {
           clearTimeout(downloadTimeout);
@@ -540,7 +540,7 @@ export default {
           this.$modal.msgError("下载失败，请稍后重试");
           this.isDownloading = false;
         };
-        
+
         // 对于PDF文件，添加特殊参数以确保正确下载
         let downloadUrl = url;
         if (isPdf) {
@@ -551,10 +551,10 @@ export default {
             downloadUrl += `&fileName=${encodeURIComponent(originalName)}`;
           }
         }
-        
+
         // 设置iframe的src以触发下载
         downloadFrame.src = downloadUrl;
-        
+
       } catch (error) {
         console.error('下载文件时出错:', error);
         this.$modal.msgError(`下载失败: ${error.message}`);
@@ -575,14 +575,14 @@ export default {
       }
 
       this.isDownloading = true;
-      
+
       // 获取所有选中文件的ID
       const fileIds = selection.map(item => item.fileId).join(",");
-      
+
       // 构建批量下载URL
       const token = getToken();
       const url = process.env.VUE_APP_BASE_API + '/filemanager/file/batchDownload/' + fileIds + '?token=' + token;
-      
+
       try {
         // 使用iframe方式下载文件，避免被浏览器阻止
         let downloadFrame = document.getElementById('download-frame');
@@ -592,18 +592,18 @@ export default {
           downloadFrame.style.display = 'none';
           document.body.appendChild(downloadFrame);
         }
-        
+
         // 设置下载完成或失败的处理函数
         const downloadTimeout = setTimeout(() => {
-          this.$modal.msgSuccess("批量下载已开始");
+         // this.$modal.msgSuccess("批量下载已开始");
           this.isDownloading = false;
         }, 1500);
-        
+
         // 监听iframe的load事件
         downloadFrame.onload = () => {
           clearTimeout(downloadTimeout);
           console.log('批量下载iframe加载完成');
-          
+
           try {
             // 尝试检查iframe内容是否为错误响应
             const frameDoc = downloadFrame.contentDocument || downloadFrame.contentWindow.document;
@@ -620,11 +620,11 @@ export default {
             // 跨域限制可能导致无法访问iframe内容
             console.log('无法检查iframe内容:', e);
           }
-          
+
           // 默认认为下载已开始
           this.isDownloading = false;
         };
-        
+
         // 监听iframe的错误事件
         downloadFrame.onerror = () => {
           clearTimeout(downloadTimeout);
@@ -632,10 +632,10 @@ export default {
           this.$modal.msgError("批量下载失败，请稍后重试");
           this.isDownloading = false;
         };
-        
+
         // 设置iframe的src以触发下载
         downloadFrame.src = url;
-        
+
       } catch (error) {
         console.error('批量下载文件时出错:', error);
         this.$modal.msgError(`批量下载失败: ${error.message}`);
@@ -646,10 +646,10 @@ export default {
     handleView(row) {
       const fileType = row.fileType.toLowerCase();
       const imageTypes = ['png', 'jpg', 'jpeg', 'gif', 'bmp'];
-      
+
       // 构建预览URL
       const url = process.env.VUE_APP_BASE_API + row.filePath;
-      
+
       if (imageTypes.includes(fileType)) {
         this.preview.type = 'image';
       } else if (fileType === 'pdf') {
@@ -657,7 +657,7 @@ export default {
       } else {
         this.preview.type = 'other';
       }
-      
+
       this.preview.title = "预览文件: " + row.originalName;
       this.preview.url = url;
       this.preview.open = true;
@@ -675,9 +675,9 @@ export default {
       if (!fileType) {
         return 'el-icon-document';
       }
-      
+
       fileType = fileType.toLowerCase();
-      
+
       if (['doc', 'docx'].includes(fileType)) {
         return 'el-icon-document';
       } else if (['xls', 'xlsx'].includes(fileType)) {
@@ -708,16 +708,16 @@ export default {
       const protocol = window.location.protocol;
       const hostname = window.location.hostname;
       const port = window.location.port ? `:${window.location.port}` : '';
-      
+
       // 构建完整URL
       const baseUrl = `${protocol}//${hostname}${port}`;
       const apiPath = process.env.VUE_APP_BASE_API;
-      
+
       // 如果path已经包含完整URL，则直接返回
       if (path.startsWith('http://') || path.startsWith('https://')) {
         return path;
       }
-      
+
       return `${baseUrl}${apiPath}${path}`;
     },
     /** 复制文件访问地址 */
@@ -738,14 +738,14 @@ export default {
     handleImagePreview(row) {
       // 构建预览URL
       const url = this.getFilePath(row.filePath);
-      
+
       // 创建一个临时的Image对象预加载图片
       const img = new Image();
       img.onload = () => {
         // 设置预览列表
         this.imagePreview.url = url;
         this.imagePreview.previewList = [url];
-        
+
         // 等待DOM更新后触发预览
         this.$nextTick(() => {
           // 找到预览图片的DOM元素并模拟点击
@@ -845,4 +845,4 @@ export default {
   padding-left: 5px;
   padding-right: 5px;
 }
-</style> 
+</style>
