@@ -30,6 +30,10 @@ server:
       max: 800
       # Tomcat启动初始化的线程数，默认值10
       min-spare: 100
+    # 连接超时时间，单位毫秒，默认20000（20秒）
+    connection-timeout: 60000
+    # Socket读取超时时间，单位毫秒，默认20000（20秒）
+    connection-properties: connectionTimeout=60000;socketTimeout=180000
 
 # 日志配置
 logging:
@@ -87,6 +91,13 @@ spring:
         max-active: 8
         # #连接池最大阻塞等待时间（使用负值表示没有限制）
         max-wait: -1ms
+  # HTTP客户端配置
+  http:
+    client:
+      # 连接超时时间
+      connect-timeout: 60s
+      # 读取超时时间
+      read-timeout: 180s
 
 # token配置
 token:

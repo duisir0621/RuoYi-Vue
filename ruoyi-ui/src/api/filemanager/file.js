@@ -50,4 +50,13 @@ export function uploadFile(file) {
     method: 'post',
     data: file
   })
+}
+
+// 批量下载文件
+export function batchDownloadFile(fileIds) {
+  return request({
+    url: '/filemanager/file/batchDownload/' + fileIds,
+    method: 'get',
+    responseType: 'blob'
+  })
 } 

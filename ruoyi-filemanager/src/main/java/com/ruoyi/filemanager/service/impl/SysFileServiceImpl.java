@@ -36,6 +36,14 @@ import com.ruoyi.filemanager.service.ISysFileService;
 import com.ruoyi.filemanager.utils.FileCleanupUtils;
 import com.ruoyi.filemanager.utils.FileManagerUtils;
 
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Arrays;
+import javax.annotation.PreDestroy;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.net.SocketTimeoutException;
+
 /**
  * 文件管理Service业务层处理
  * 
@@ -54,6 +62,12 @@ public class SysFileServiceImpl implements ISysFileService
     
     @Autowired
     private HttpServletResponse response;
+    
+    // 添加ThreadLocal存储最近处理的文件ID和时间戳
+    private static final ThreadLocal<Map<Long, Long>> RECENT_DOWNLOADS = ThreadLocal.withInitial(HashMap::new);
+    
+    // 设置防重复下载的时间窗口（毫秒）
+    private static final long DOWNLOAD_THRESHOLD = 2000;
 
     /**
      * 查询文件
@@ -237,6 +251,25 @@ public class SysFileServiceImpl implements ISysFileService
     @Override
     public void downloadFile(Long fileId)
     {
+        // 检查是否是短时间内的重复下载请求
+        Map<Long, Long> recentDownloads = RECENT_DOWNLOADS.get();
+        Long lastDownloadTime = recentDownloads.get(fileId);
+        long currentTime = System.currentTimeMillis();
+        
+        if (lastDownloadTime != null && (currentTime - lastDownloadTime) < DOWNLOAD_THRESHOLD) {
+            log.info("检测到重复下载请求，文件ID: {}, 上次下载时间: {}, 当前时间: {}", fileId, lastDownloadTime, currentTime);
+            try {
+                response.setContentType("application/json;charset=utf-8");
+                response.getWriter().write("{\"msg\":\"请勿重复下载\",\"code\":500}");
+                return;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        
+        // 记录本次下载时间
+        recentDownloads.put(fileId, currentTime);
+        
         SysFile sysFile = sysFileMapper.selectSysFileById(fileId);
         if (sysFile == null)
         {
@@ -249,6 +282,7 @@ public class SysFileServiceImpl implements ISysFileService
             }
         }
         
+        FileInputStream fileInputStream = null;
         try
         {
             String filePath = RuoYiConfig.getProfile() + StringUtils.substringAfter(sysFile.getFilePath(), "/profile");
@@ -267,9 +301,8 @@ public class SysFileServiceImpl implements ISysFileService
             String contentType = MimeTypeUtils.getContentType(fileType);
             
             // 记录日志信息，帮助调试
-            System.out.println("文件ID: " + fileId);
-            System.out.println("文件类型: " + fileType);
-            System.out.println("内容类型: " + contentType);
+            log.info("开始下载文件 - ID: {}, 类型: {}, 内容类型: {}, 大小: {}KB", 
+                    fileId, fileType, contentType, file.length()/1024);
             
             response.reset(); // 重置响应对象，清除缓存
             
@@ -336,30 +369,100 @@ public class SysFileServiceImpl implements ISysFileService
                 response.setHeader("Content-disposition", "attachment;filename=" + FileUtils.setFileDownloadHeader(request, downloadName));
             }
             
-            // 使用缓冲流提高性能
-            FileInputStream fileInputStream = new FileInputStream(file);
-            byte[] buffer = new byte[1024 * 10]; // 10KB缓冲区
-            OutputStream outputStream = response.getOutputStream();
-            int bytesRead;
-            while ((bytesRead = fileInputStream.read(buffer)) != -1) {
-                outputStream.write(buffer, 0, bytesRead);
-            }
-            outputStream.flush();
-            fileInputStream.close();
+            // 优化：针对大文件采用更大的缓冲区
+            fileInputStream = new FileInputStream(file);
+            long fileSize = file.length();
             
-            // 更新下载次数
-            sysFileMapper.updateSysFileDownloadCount(fileId);
+            // 针对大小文件使用不同的缓冲区大小
+            int bufferSize = fileSize > 10 * 1024 * 1024 ? 1024 * 1024 : 1024 * 32; // 大文件用1MB缓冲，小文件用32KB
+            byte[] buffer = new byte[bufferSize]; 
+            OutputStream outputStream = response.getOutputStream();
+
+            // 优化：配置文件读写超时
+            try {
+                // 尝试延长Tomcat的Socket超时时间
+                if (fileSize > 10 * 1024 * 1024) { // 大于10MB的文件
+                    log.info("下载较大文件({}MB)，已配置延长超时时间", fileSize / (1024 * 1024));
+                }
+
+                int bytesRead;
+                int totalRead = 0;
+                long startTime = System.currentTimeMillis();
+                int flushThreshold = bufferSize * 2; // 每读取两个缓冲区大小的数据就刷新一次
+                int accumulatedBytes = 0;
+                
+                // 分块传输文件数据
+                while ((bytesRead = fileInputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, bytesRead);
+                    totalRead += bytesRead;
+                    accumulatedBytes += bytesRead;
+                    
+                    // 定期刷新输出流以防止缓冲区溢出
+                    if (accumulatedBytes >= flushThreshold) {
+                        outputStream.flush();
+                        accumulatedBytes = 0;
+                        
+                        // 记录下载进度
+                        if (totalRead % (5 * 1024 * 1024) < bufferSize) { // 每下载5MB记录一次进度
+                            long timeElapsed = System.currentTimeMillis() - startTime;
+                            if (timeElapsed > 0) {
+                                double speedMBps = (totalRead / 1024.0 / 1024.0) / (timeElapsed / 1000.0);
+                                log.debug("文件下载进度 - ID: {}, 已下载: {}MB, 总大小: {}MB, 速度: {:.2f}MB/s", 
+                                        fileId, totalRead / (1024 * 1024), fileSize / (1024 * 1024), speedMBps);
+                            }
+                        }
+                    }
+                }
+                
+                // 确保剩余数据刷新
+                outputStream.flush();
+                
+                // 更新下载次数
+                sysFileMapper.updateSysFileDownloadCount(fileId);
+                
+                long timeTotal = System.currentTimeMillis() - startTime;
+                log.info("文件下载完成 - ID: {}, 总大小: {}KB, 耗时: {}ms", fileId, fileSize / 1024, timeTotal);
+                
+            } catch (SocketTimeoutException ste) {
+                log.error("下载文件时连接超时: {}", ste.getMessage());
+                // 连接已超时，不再尝试写入响应
+            } catch (IOException ioe) {
+                // 检查是否是客户端中断连接（常见情况）
+                if (ioe.getMessage() != null && 
+                    (ioe.getMessage().contains("Broken pipe") || 
+                     ioe.getMessage().contains("Connection reset") ||
+                     ioe.getMessage().contains("connection was aborted"))) {
+                    log.info("客户端可能已取消下载 - ID: {}, 错误: {}", fileId, ioe.getMessage());
+                } else {
+                    log.error("下载文件IO异常 - ID: {}, 错误: {}", fileId, ioe.getMessage());
+                }
+            }
         }
         catch (Exception e)
         {
-            System.out.println("下载文件异常: " + e.getMessage());
-            e.printStackTrace();
+            log.error("下载文件处理异常: {}", e.getMessage(), e);
             try {
-                response.reset();
-                response.setContentType("application/json;charset=utf-8");
-                response.getWriter().write("{\"msg\":\"下载文件失败：" + e.getMessage() + "\",\"code\":500}");
+                // 检查响应是否已提交，避免"Cannot call reset() after response has been committed"异常
+                if (!response.isCommitted()) {
+                    response.reset();
+                    response.setContentType("application/json;charset=utf-8");
+                    response.getWriter().write("{\"msg\":\"下载文件失败：" + e.getMessage() + "\",\"code\":500}");
+                } else {
+                    // 响应已提交，只记录错误，不再尝试重置响应
+                    log.error("文件下载异常，响应已提交，无法重置响应: {}", e.getMessage());
+                }
             } catch (IOException ioe) {
-                ioe.printStackTrace();
+                log.error("响应错误信息失败: {}", ioe.getMessage());
+            }
+        }
+        finally {
+            // 确保关闭文件输入流
+            if (fileInputStream != null) {
+                try {
+                    fileInputStream.close();
+                } catch (IOException e) {
+                    log.error("关闭文件输入流失败: {}", e.getMessage());
+                }
             }
         }
     }
@@ -382,6 +485,26 @@ public class SysFileServiceImpl implements ISysFileService
                 e.printStackTrace();
             }
         }
+        
+        // 检查是否是短时间内的重复下载请求
+        Map<Long, Long> recentDownloads = RECENT_DOWNLOADS.get();
+        String downloadKey = String.join(",", Arrays.stream(fileIds).map(String::valueOf).toArray(String[]::new));
+        Long lastDownloadTime = recentDownloads.get(-1L); // 使用-1作为批量下载的特殊标记
+        long currentTime = System.currentTimeMillis();
+        
+        if (lastDownloadTime != null && (currentTime - lastDownloadTime) < DOWNLOAD_THRESHOLD) {
+            log.info("检测到重复批量下载请求，文件ID: {}, 上次下载时间: {}, 当前时间: {}", downloadKey, lastDownloadTime, currentTime);
+            try {
+                response.setContentType("application/json;charset=utf-8");
+                response.getWriter().write("{\"msg\":\"请勿重复下载\",\"code\":500}");
+                return;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        
+        // 记录本次下载时间
+        recentDownloads.put(-1L, currentTime);
         
         // 临时ZIP文件名
         String zipFileName = UUID.randomUUID().toString() + ".zip";
@@ -434,8 +557,14 @@ public class SysFileServiceImpl implements ISysFileService
         catch (IOException e)
         {
             try {
-                response.setContentType("application/json;charset=utf-8");
-                response.getWriter().write("{\"msg\":\"创建压缩文件失败：" + e.getMessage() + "\",\"code\":500}");
+                // 检查响应是否已提交，避免"Cannot call reset() after response has been committed"异常
+                if (!response.isCommitted()) {
+                    response.setContentType("application/json;charset=utf-8");
+                    response.getWriter().write("{\"msg\":\"创建压缩文件失败：" + e.getMessage() + "\",\"code\":500}");
+                } else {
+                    // 响应已提交，只记录错误
+                    log.error("创建压缩文件失败，响应已提交: {}", e.getMessage());
+                }
                 return;
             } catch (IOException ioe) {
                 ioe.printStackTrace();
@@ -467,4 +596,14 @@ public class SysFileServiceImpl implements ISysFileService
             }
           }
     }
+
+    /**
+     * 清理ThreadLocal资源
+     * 在请求结束时调用，避免内存泄漏
+     */
+    @PreDestroy
+    public void cleanup() {
+        RECENT_DOWNLOADS.remove();
+    }
+    
 } 

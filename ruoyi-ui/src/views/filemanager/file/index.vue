@@ -89,7 +89,7 @@
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
-    <el-table v-loading="loading" :data="fileList" @selection-change="handleSelectionChange">
+    <el-table v-loading="loading" :data="fileList" ref="multipleTable" @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="55" align="center" />
       <el-table-column label="文件ID" align="center" prop="fileId" />
       <el-table-column label="文件名称" align="center" prop="fileName" width="180" :show-overflow-tooltip="true" />
@@ -337,7 +337,9 @@ export default {
       imagePreview: {
         url: "",
         previewList: []
-      }
+      },
+      // 下载防抖
+      isDownloading: false
     };
   },
   created() {
@@ -455,62 +457,190 @@ export default {
     },
     /** 下载按钮操作 */
     handleDownload(row) {
+      // 防止重复点击
+      if (this.isDownloading) {
+        return;
+      }
+      this.isDownloading = true;
+
+      // 所有文件类型都直接下载，不再弹出选择框
+      this.downloadFile(row, 'download');
+    },
+
+    /** 实际下载文件操作 */
+    downloadFile(row, mode) {
       const fileId = row.fileId || this.ids;
+      const fileType = row.fileType ? row.fileType.toLowerCase() : '';
+      const isPdf = fileType === 'pdf';
+      const originalName = row.originalName || `file_${fileId}`;
       
-      // 使用loading效果，提升用户体验
-      const loading = this.$loading({
-        lock: true,
-        text: "正在准备下载...",
-        spinner: "el-icon-loading",
-        background: "rgba(0, 0, 0, 0.7)"
-      });
-      
-      // 创建一个新的链接，直接使用浏览器进行文件下载
+      // 构建请求URL
       const token = getToken();
       const url = process.env.VUE_APP_BASE_API + '/filemanager/file/download/' + fileId + '?token=' + token;
-      const link = document.createElement('a');
-      link.href = url;
-      link.target = '_blank'; // 在新窗口打开，避免导航离开当前页面
       
-      // 添加到DOM
-      document.body.appendChild(link);
+      // 如果选择在线预览PDF，使用浏览器的PDF查看器
+      if (mode === 'preview' && isPdf) {
+        // 打开新窗口预览PDF
+        window.open(url, '_blank');
+        this.isDownloading = false;
+        return;
+      }
+
+      // console.log('开始下载文件 - URL:', url);
       
-      // 延迟关闭loading效果，确保链接有足够时间被点击
-      setTimeout(() => {
-        link.click();
-        document.body.removeChild(link);
-        loading.close();
-      }, 100);
+      try {
+        // 使用iframe方式下载文件，避免被浏览器阻止
+        // 创建一个隐藏的iframe
+        let downloadFrame = document.getElementById('download-frame');
+        if (!downloadFrame) {
+          downloadFrame = document.createElement('iframe');
+          downloadFrame.id = 'download-frame';
+          downloadFrame.style.display = 'none';
+          document.body.appendChild(downloadFrame);
+        }
+        
+       // 设置下载完成或失败的处理函数
+        const downloadTimeout = setTimeout(() => {
+          //console.log('下载可能已开始或被阻止');
+          // 只显示简短的成功提示，不再提示检查下载列表
+          //this.$modal.msgSuccess("下载成功");
+          this.isDownloading = false;
+        }, 1500); // 缩短超时时间，提高响应速度
+        
+        // 监听iframe的load事件
+        downloadFrame.onload = () => {
+          clearTimeout(downloadTimeout);
+          console.log('iframe加载完成');
+          
+          try {
+            // 尝试检查iframe内容是否为错误响应
+            const frameDoc = downloadFrame.contentDocument || downloadFrame.contentWindow.document;
+            if (frameDoc && frameDoc.body && frameDoc.body.textContent) {
+              const text = frameDoc.body.textContent;
+              // 检查是否包含错误信息
+              if (text.includes('error') || text.includes('错误') || text.includes('失败')) {
+                this.$modal.msgError(`下载失败: ${text}`);
+                this.isDownloading = false;
+                return;
+              }
+            }
+          } catch (e) {
+            // 跨域限制可能导致无法访问iframe内容
+            console.log('无法检查iframe内容:', e);
+          }
+          
+          // 默认认为下载已开始，但不显示提示，保持界面简洁
+          this.isDownloading = false;
+        };
+        
+        // 监听iframe的错误事件
+        downloadFrame.onerror = () => {
+          clearTimeout(downloadTimeout);
+          console.error('iframe加载错误');
+          this.$modal.msgError("下载失败，请稍后重试");
+          this.isDownloading = false;
+        };
+        
+        // 对于PDF文件，添加特殊参数以确保正确下载
+        let downloadUrl = url;
+        if (isPdf) {
+          // 添加参数指示这是下载而非预览
+          downloadUrl += '&download=true';
+          // 添加原始文件名作为参数
+          if (originalName) {
+            downloadUrl += `&fileName=${encodeURIComponent(originalName)}`;
+          }
+        }
+        
+        // 设置iframe的src以触发下载
+        downloadFrame.src = downloadUrl;
+        
+      } catch (error) {
+        console.error('下载文件时出错:', error);
+        this.$modal.msgError(`下载失败: ${error.message}`);
+        setTimeout(() => { this.isDownloading = false; }, 1000);
+      }
     },
     /** 批量下载按钮操作 */
     handleBatchDownload() {
-      if (this.ids.length === 0) {
-        this.$modal.msgError("请选择要下载的文件");
+      const selection = this.$refs.multipleTable.selection;
+      if (selection.length === 0) {
+        this.$modal.msgError("请至少选择一个文件");
         return;
       }
+
+      if (this.isDownloading) {
+        this.$modal.msgWarning("正在处理另一个下载任务，请稍后再试");
+        return;
+      }
+
+      this.isDownloading = true;
       
-      this.$modal.confirm('是否确认批量下载选中的' + this.ids.length + '个文件？').then(() => {
-        this.downloadLoading = true;
+      // 获取所有选中文件的ID
+      const fileIds = selection.map(item => item.fileId).join(",");
+      
+      // 构建批量下载URL
+      const token = getToken();
+      const url = process.env.VUE_APP_BASE_API + '/filemanager/file/batchDownload/' + fileIds + '?token=' + token;
+      
+      try {
+        // 使用iframe方式下载文件，避免被浏览器阻止
+        let downloadFrame = document.getElementById('download-frame');
+        if (!downloadFrame) {
+          downloadFrame = document.createElement('iframe');
+          downloadFrame.id = 'download-frame';
+          downloadFrame.style.display = 'none';
+          document.body.appendChild(downloadFrame);
+        }
         
-        // 创建一个新的链接，直接使用浏览器进行文件下载
-        const token = getToken();
-        const url = process.env.VUE_APP_BASE_API + '/filemanager/file/batchDownload/' + this.ids.toString() + '?token=' + token;
-        const link = document.createElement('a');
-        link.href = url;
-        link.target = '_blank'; // 在新窗口打开，避免导航离开当前页面
+        // 设置下载完成或失败的处理函数
+        const downloadTimeout = setTimeout(() => {
+          this.$modal.msgSuccess("批量下载已开始");
+          this.isDownloading = false;
+        }, 1500);
         
-        // 添加到DOM
-        document.body.appendChild(link);
+        // 监听iframe的load事件
+        downloadFrame.onload = () => {
+          clearTimeout(downloadTimeout);
+          console.log('批量下载iframe加载完成');
+          
+          try {
+            // 尝试检查iframe内容是否为错误响应
+            const frameDoc = downloadFrame.contentDocument || downloadFrame.contentWindow.document;
+            if (frameDoc && frameDoc.body && frameDoc.body.textContent) {
+              const text = frameDoc.body.textContent;
+              // 检查是否包含错误信息
+              if (text.includes('error') || text.includes('错误') || text.includes('失败')) {
+                this.$modal.msgError(`批量下载失败: ${text}`);
+                this.isDownloading = false;
+                return;
+              }
+            }
+          } catch (e) {
+            // 跨域限制可能导致无法访问iframe内容
+            console.log('无法检查iframe内容:', e);
+          }
+          
+          // 默认认为下载已开始
+          this.isDownloading = false;
+        };
         
-        // 触发点击
-        link.click();
+        // 监听iframe的错误事件
+        downloadFrame.onerror = () => {
+          clearTimeout(downloadTimeout);
+          console.error('批量下载iframe加载错误');
+          this.$modal.msgError("批量下载失败，请稍后重试");
+          this.isDownloading = false;
+        };
         
-        // 清理DOM
-        setTimeout(() => {
-          document.body.removeChild(link);
-          this.downloadLoading = false;
-        }, 100);
-      }).catch(() => {});
+        // 设置iframe的src以触发下载
+        downloadFrame.src = url;
+        
+      } catch (error) {
+        console.error('批量下载文件时出错:', error);
+        this.$modal.msgError(`批量下载失败: ${error.message}`);
+        setTimeout(() => { this.isDownloading = false; }, 1000);
+      }
     },
     /** 预览按钮操作 */
     handleView(row) {

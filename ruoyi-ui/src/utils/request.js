@@ -17,7 +17,7 @@ const service = axios.create({
   // axios中请求配置有baseURL选项，表示请求URL公共部分
   baseURL: process.env.VUE_APP_BASE_API,
   // 超时
-  timeout: 10000
+  timeout: 120000  // 将超时时间从10秒增加到120秒
 })
 
 // request拦截器
@@ -26,6 +26,14 @@ service.interceptors.request.use(config => {
   const isToken = (config.headers || {}).isToken === false
   // 是否需要防止数据重复提交
   const isRepeatSubmit = (config.headers || {}).repeatSubmit === false
+  // 判断是否是文件上传请求
+  const isUpload = config.url && config.url.includes('/upload')
+  
+  // 为文件上传请求设置更长的超时时间
+  if (isUpload) {
+    config.timeout = 600000  // 文件上传请求设置为10分钟超时
+  }
+  
   if (getToken() && !isToken) {
     config.headers['Authorization'] = 'Bearer ' + getToken() // 让每个请求携带自定义token 请根据实际情况自行修改
   }
